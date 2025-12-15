@@ -1,10 +1,5 @@
 """
-Complete Face Recognition Pipeline - All Experiments
-Runs detection evaluation, whole image recognition, and full pipeline recognition.
-
-Usage:
-  python run_experiments.py          # Run all experiments
-  python run_experiments.py --test   # Test setup only
+Face Recognition Pipeline - Experiments
 """
 import os
 import sys
@@ -34,12 +29,10 @@ def test_setup():
     
     if not os.path.exists(csv_path):
         print(f"CSV file not found: {csv_path}")
-        print("Download from: https://tinyurl.com/celebahqsmall")
         return False
     
     if not os.path.exists(images_dir):
         print(f"Images directory not found: {images_dir}")
-        print("Download from: https://tinyurl.com/celebahqsmall")
         return False
     
     print(f"Data files found")
@@ -270,8 +263,6 @@ def main():
     """Run all experiments or test setup."""
     if len(sys.argv) > 1 and sys.argv[1] in ['--test', '-t', 'test']:
         success = test_setup()
-        if success:
-            print("\nSetup verified! Run 'python run_experiments.py' to start.")
         sys.exit(0 if success else 1)
     
     print("\n" + "#"*70)
@@ -297,15 +288,14 @@ def main():
         pickle.dump({'exp1': exp1, 'exp2': exp2, 'exp3': exp3}, f)
     
     print("\n" + "="*70)
-    print("ALL EXPERIMENTS COMPLETED!")
+    print("ALL EXPERIMENTS COMPLETED")
     print("="*70)
-    print(f"\nResults saved in '{results_dir}/':")
+    print(f"\nResults saved in '{results_dir}/'")
     print("  - exp1_iou.png")
     print("  - exp2_cmc.png")
     print("  - exp3_cmc.png")
     print("  - report.txt")
     print("  - all_results.pkl")
-    print("\nNext: Write your 2-page report using REPORT_GUIDE.md")
 
 if __name__ == '__main__':
     main()
