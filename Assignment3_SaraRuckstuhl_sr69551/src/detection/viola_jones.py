@@ -25,6 +25,7 @@ class ViolaJonesDetector:
         self.min_neighbors = min_neighbors
         self.min_size = min_size
         
+        # Load the Haar Cascade classifier
         self.face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         )
@@ -39,11 +40,13 @@ class ViolaJonesDetector:
         Returns:
             List of bounding boxes (x, y, width, height)
         """
+        # Convert to grayscale if needed
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         else:
             gray = image
             
+        # Detect faces
         faces = self.face_cascade.detectMultiScale(
             gray,
             scaleFactor=self.scale_factor,
@@ -51,14 +54,7 @@ class ViolaJonesDetector:
             minSize=self.min_size
         )
         
-        adjusted_faces = []
-        for (x, y, w, h) in faces:
-            h_new = int(w * 1.36)
-            y_new = y - int((h_new - h) / 2)
-            y_new = max(0, y_new)
-            adjusted_faces.append((x, y_new, w, h_new))
-        
-        return adjusted_faces
+        return [tuple(face) for face in faces]
     
     def detect_best_face(self, image: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
         """

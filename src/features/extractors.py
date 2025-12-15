@@ -23,49 +23,36 @@ class FeatureExtractor:
 class LBPExtractor(FeatureExtractor):
     """Local Binary Pattern feature extractor with multi-scale approach."""
     
-    def __init__(self, n_points: int = 24, radius: int = 3, grid_size: Tuple[int, int] = (4, 4)):
-        """
-        Initialize LBP extractor.
-        
-        Args:
-            n_points: Number of circularly symmetric neighbor points
-            radius: Radius of circle
-            grid_size: Grid for spatial histogram (divide image into regions)
-        """
+    def __init__(self, n_points: int = 24, radius: int = 8, grid_size: Tuple[int, int] = (6, 4)):
         self.n_points = n_points
         self.radius = radius
         self.grid_size = grid_size
     
     def extract(self, image: np.ndarray) -> np.ndarray:
-        """
-        Extract LBP features with spatial histograms.
-        
-        Args:
-            image: Input image (BGR or grayscale)
-            
-        Returns:
-            LBP feature vector
-        """
-        # Convert to grayscale if needed
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         else:
             gray = image
         
-        # Resize to larger standard size for better features
-        gray = cv2.resize(gray, (256, 256))
-        # Histogram equalization for better contrast
+        gray = cv2.resize(gray, (112, 144))
         gray = cv2.equalizeHist(gray)
         
-        # Calculate LBP
         lbp = local_binary_pattern(gray, self.n_points, self.radius, method='uniform')
         
-        # Divide into spatial grid and compute histogram for each region
         h, w = lbp.shape
         grid_h, grid_w = self.grid_size
         cell_h, cell_w = h // grid_h, w // grid_w
         
-        n_bins = self.n_points + 2  # uniform LBP bins
+        weights = np.array([
+            [0, 1, 1, 0],
+            [1, 2, 2, 1],
+            [2, 4, 4, 2],
+            [2, 4, 4, 2],
+            [1, 2, 2, 1],
+            [0, 1, 1, 0]
+        ])
+        
+        n_bins = self.n_points + 2
         histograms = []
         
         for i in range(grid_h):
@@ -73,11 +60,10 @@ class LBPExtractor(FeatureExtractor):
                 cell = lbp[i*cell_h:(i+1)*cell_h, j*cell_w:(j+1)*cell_w]
                 hist, _ = np.histogram(cell.ravel(), bins=n_bins, 
                                       range=(0, n_bins), density=True)
+                hist = hist * weights[i, j]
                 histograms.append(hist)
         
-        # Concatenate all histograms
         features = np.concatenate(histograms)
-        # L2 normalize
         features = features / (np.linalg.norm(features) + 1e-7)
         
         return features
@@ -87,53 +73,30 @@ class LBPExtractor(FeatureExtractor):
 
 
 class HOGExtractor(FeatureExtractor):
-    """Histogram of Oriented Gradients feature extractor."""
     
-    def __init__(self, orientations: int = 9, pixels_per_cell: Tuple[int, int] = (8, 8),
-                 cells_per_block: Tuple[int, int] = (3, 3)):
-        """
-        Initialize HOG extractor.
-        
-        Args:
-            orientations: Number of orientation bins
-            pixels_per_cell: Size of a cell
-            cells_per_block: Number of cells in each block
-        """
+    def __init__(self, orientations: int = 9, pixels_per_cell: Tuple[int, int] = (16, 16),
+                 cells_per_block: Tuple[int, int] = (2, 2)):
         self.orientations = orientations
         self.pixels_per_cell = pixels_per_cell
         self.cells_per_block = cells_per_block
     
     def extract(self, image: np.ndarray) -> np.ndarray:
-        """
-        Extract HOG features.
-        
-        Args:
-            image: Input image (BGR or grayscale)
-            
-        Returns:
-            HOG feature vector
-        """
-        # Convert to grayscale if needed
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         else:
             gray = image
         
-        # Resize to larger standard size for better features
-        gray = cv2.resize(gray, (256, 256))
-        # Histogram equalization for better contrast
+        gray = cv2.resize(gray, (112, 144))
         gray = cv2.equalizeHist(gray)
         
-        # Calculate HOG with better normalization
         features = hog(gray, 
                       orientations=self.orientations,
                       pixels_per_cell=self.pixels_per_cell,
                       cells_per_block=self.cells_per_block,
                       block_norm='L2-Hys',
-                      transform_sqrt=True,  # Power law compression for illumination invariance
+                      transform_sqrt=True,
                       visualize=False)
         
-        # Additional L2 normalization
         features = features / (np.linalg.norm(features) + 1e-7)
         
         return features
@@ -143,66 +106,53 @@ class HOGExtractor(FeatureExtractor):
 
 
 class DenseSIFTExtractor(FeatureExtractor):
-    """Dense SIFT feature extractor using a fixed grid with improved aggregation."""
     
-    def __init__(self, step_size: int = 6, patch_size: int = 16):
-        """
-        Initialize Dense SIFT extractor.
-        
-        Args:
-            step_size: Step size for the dense grid
-            patch_size: Size of patches for SIFT computation
-        """
+    def __init__(self, step_size: int = 4, patch_size: int = 16, grid_size: tuple = (4, 3)):
         self.step_size = step_size
         self.patch_size = patch_size
+        self.grid_size = grid_size
         self.sift = cv2.SIFT_create()
     
     def extract(self, image: np.ndarray) -> np.ndarray:
-        """
-        Extract Dense SIFT features with improved aggregation.
-        
-        Args:
-            image: Input image (BGR or grayscale)
-            
-        Returns:
-            Dense SIFT feature vector (aggregated)
-        """
-        # Convert to grayscale if needed
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         else:
             gray = image
         
-        # Resize to larger standard size
-        gray = cv2.resize(gray, (256, 256))
-        # Histogram equalization
+        gray = cv2.resize(gray, (112, 144))
         gray = cv2.equalizeHist(gray)
         
-        # Generate dense grid of keypoints
-        keypoints = []
         height, width = gray.shape
+        grid_h, grid_w = self.grid_size
+        cell_h, cell_w = height // grid_h, width // grid_w
         
-        for y in range(0, height - self.patch_size, self.step_size):
-            for x in range(0, width - self.patch_size, self.step_size):
-                keypoints.append(cv2.KeyPoint(
-                    x + self.patch_size / 2,
-                    y + self.patch_size / 2,
-                    self.patch_size
-                ))
+        features = []
         
-        # Compute SIFT descriptors at keypoints
-        _, descriptors = self.sift.compute(gray, keypoints)
+        for i in range(grid_h):
+            for j in range(grid_w):
+                y_start, y_end = i * cell_h, (i + 1) * cell_h
+                x_start, x_end = j * cell_w, (j + 1) * cell_w
+                cell = gray[y_start:y_end, x_start:x_end]
+                
+                keypoints = []
+                for y in range(0, cell.shape[0] - self.patch_size, self.step_size):
+                    for x in range(0, cell.shape[1] - self.patch_size, self.step_size):
+                        keypoints.append(cv2.KeyPoint(
+                            x + self.patch_size / 2,
+                            y + self.patch_size / 2,
+                            self.patch_size
+                        ))
+                
+                _, descriptors = self.sift.compute(cell, keypoints)
+                
+                if descriptors is None or len(descriptors) == 0:
+                    cell_feature = np.zeros(128)
+                else:
+                    cell_feature = np.mean(descriptors, axis=0)
+                
+                features.append(cell_feature)
         
-        if descriptors is None or len(descriptors) == 0:
-            # Return zero vector if no descriptors
-            return np.zeros(256)
-        
-        # Improved aggregation: concatenate mean and std
-        mean_desc = np.mean(descriptors, axis=0)
-        std_desc = np.std(descriptors, axis=0)
-        feature_vector = np.concatenate([mean_desc, std_desc])
-        
-        # L2 normalize
+        feature_vector = np.concatenate(features)
         feature_vector = feature_vector / (np.linalg.norm(feature_vector) + 1e-7)
         
         return feature_vector
@@ -212,7 +162,6 @@ class DenseSIFTExtractor(FeatureExtractor):
 
 
 def get_all_extractors():
-    """Get all feature extractors."""
     return [
         LBPExtractor(),
         HOGExtractor(),

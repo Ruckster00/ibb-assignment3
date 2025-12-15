@@ -91,6 +91,7 @@ class CelebAHQDataset:
         x, y, w, h = bbox
         
         if padding > 0:
+            # Add padding
             pad_x = int(w * padding)
             pad_y = int(h * padding)
             
@@ -99,6 +100,7 @@ class CelebAHQDataset:
             w = min(image.shape[1] - x, w + 2 * pad_x)
             h = min(image.shape[0] - y, h + 2 * pad_y)
         
+        # Crop
         cropped = image[y:y+h, x:x+w]
         
         return cropped
@@ -179,10 +181,12 @@ def visualize_samples(dataset: CelebAHQDataset, n_samples: int = 5,
         image = dataset.load_image(idx)
         bbox = dataset.get_bounding_box(row)
         
+        # Convert BGR to RGB for display
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         ax.imshow(image_rgb)
         
+        # Draw bounding box
         x, y, w, h = bbox
         rect = patches.Rectangle((x, y), w, h, linewidth=2, 
                                  edgecolor='red', facecolor='none')

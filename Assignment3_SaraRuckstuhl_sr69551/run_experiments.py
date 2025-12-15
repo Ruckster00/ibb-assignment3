@@ -32,24 +32,26 @@ def test_setup():
     csv_path = 'data/CelebA-HQ-small.csv'
     images_dir = 'data/CelebA-HQ-small'
     
+    # Check files exist
     if not os.path.exists(csv_path):
-        print(f"CSV file not found: {csv_path}")
+        print(f"❌ CSV file not found: {csv_path}")
         print("Download from: https://tinyurl.com/celebahqsmall")
         return False
     
     if not os.path.exists(images_dir):
-        print(f"Images directory not found: {images_dir}")
+        print(f"❌ Images directory not found: {images_dir}")
         print("Download from: https://tinyurl.com/celebahqsmall")
         return False
     
-    print(f"Data files found")
+    print(f"✅ Data files found")
     
+    # Test loading
     try:
         dataset = CelebAHQDataset(csv_path, images_dir)
-        print("Dataset loaded successfully")
+        print("✅ Dataset loaded successfully")
         return True
     except Exception as e:
-        print(f"Failed to load dataset: {e}")
+        print(f"❌ Failed to load dataset: {e}")
         return False
 
 
@@ -63,6 +65,7 @@ def experiment1_detection(dataset, results_dir='results'):
     train_images, train_ids, train_bboxes, _ = dataset.load_split_data('train')
     test_images, test_ids, test_bboxes, _ = dataset.load_split_data('test')
     
+    # Use pre-optimized parameters (scale_factor=1.05, min_neighbors=3)
     print("\nUsing optimized Viola-Jones parameters (scale_factor=1.05, min_neighbors=3)...")
     best_params = {
         'scale_factor': 1.05,
@@ -71,6 +74,7 @@ def experiment1_detection(dataset, results_dir='results'):
         'detection_rate': 0.98
     }
     
+    # Evaluate on test set
     print("Evaluating on test set...")
     detector = ViolaJonesDetector(
         scale_factor=best_params['scale_factor'],
@@ -86,6 +90,7 @@ def experiment1_detection(dataset, results_dir='results'):
     print(f"  Precision: {metrics['precision']:.4f}")
     print(f"  Recall: {metrics['recall']:.4f}")
     
+    # Save plot
     plot_iou_distribution(metrics['ious'], save_path=f'{results_dir}/exp1_iou.png')
     
     return {'params': best_params, 'metrics': metrics}
@@ -97,41 +102,52 @@ def experiment2_whole_images(dataset, results_dir='results'):
     print("EXPERIMENT II: RECOGNITION ON WHOLE IMAGES (WITH LDA)")
     print("="*70)
     
+    # Load and split data
     train_images, train_ids, _, train_indices = dataset.load_split_data('train', crop_faces=False)
     
+    # Extract features and evaluate
     all_results = {}
     extractors = get_all_extractors()
     
     for extractor in extractors:
         name = extractor.get_name()
-        print(f"\nProcessing {name}...")        
+        print(f"\nProcessing {name}...")
+        
+        # Extract features from ALL training data first
         print("  Extracting features from all training data...")
         all_features = [extractor.extract(img) for img in tqdm(train_images, desc="  Training")]
         
+        # Filter to identities with >= 3 samples (so we can use 2 for LDA, rest for query)
         identity_counts = defaultdict(int)
         for identity in train_ids:
             identity_counts[identity] += 1
         
         valid_identities = {identity for identity, count in identity_counts.items() if count >= 3}
         
+        # Organize features by identity
         identity_features = defaultdict(list)
         for feat, identity, idx in zip(all_features, train_ids, train_indices):
             if identity in valid_identities:
                 identity_features[identity].append((feat, idx))
         
+        # Create splits: 1st=gallery, all except last=LDA training, last=query
         gallery_features, gallery_ids = [], []
         lda_features, lda_labels = [], []
         query_features, query_ids = [], []
         
         for identity, items in identity_features.items():
+            # 1st sample: gallery
             gallery_features.append(items[0][0])
             gallery_ids.append(identity)
+            # All samples except last: for LDA training (includes gallery)
             for feat, _ in items[:-1]:
                 lda_features.append(feat)
                 lda_labels.append(identity)
+            # Last sample only: query
             query_features.append(items[-1][0])
             query_ids.append(identity)
         
+        # Train PCA+LDA (Fisherfaces approach)
         print(f"  Training PCA+LDA ({len(valid_identities)} classes, {len(lda_features)} samples)...")
         lda = LDAProjection(n_components=None, pca_components=150)
         lda.fit(lda_features, lda_labels)
@@ -139,16 +155,19 @@ def experiment2_whole_images(dataset, results_dir='results'):
         
         print(f"  Gallery: {len(gallery_features)} images, Query: {len(query_features)} images")
         
+        # Apply LDA projection to both sets
         gallery_features = lda.transform(gallery_features)
         query_features = lda.transform(query_features)
         
+        # Evaluate
         evaluator = FaceRecognitionEvaluator(distance_metric='cosine')
         results = evaluator.evaluate(query_features, query_ids, gallery_features, gallery_ids, max_rank=20)
         
         all_results[name] = results
         print(f"  Rank-1: {results['rank1']:.2%}, Rank-5: {results['rank5']:.2%}")
     
-    plot_cmc_curves(all_results, save_path=f'{results_dir}/exp2_cmc.png', legend_loc='upper left')
+    # Save plot
+    plot_cmc_curves(all_results, save_path=f'{results_dir}/exp2_cmc.png')
     
     return all_results
 
@@ -159,11 +178,13 @@ def experiment3_full_pipeline(dataset, exp1_results, results_dir='results'):
     print("EXPERIMENT III: FULL PIPELINE (DETECTION + RECOGNITION + LDA)")
     print("="*70)
     
+    # Initialize detector with best params
     detector = ViolaJonesDetector(
         scale_factor=exp1_results['params']['scale_factor'],
         min_neighbors=exp1_results['params']['min_neighbors']
     )
     
+    # Load and detect faces
     train_images, train_ids, _, train_indices = dataset.load_split_data('train', crop_faces=False)
     
     detected_faces, detected_ids, detected_indices = [], [], []
@@ -181,6 +202,7 @@ def experiment3_full_pipeline(dataset, exp1_results, results_dir='results'):
     
     print(f"Detected: {len(detected_faces)}/{len(train_images)} faces")
     
+    # Extract features and evaluate
     all_results = {}
     extractors = get_all_extractors()
     
@@ -188,33 +210,41 @@ def experiment3_full_pipeline(dataset, exp1_results, results_dir='results'):
         name = extractor.get_name()
         print(f"\nProcessing {name}...")
         
+        # Extract features from ALL detected faces first
         print("  Extracting features from all detected faces...")
         all_features = [extractor.extract(face) for face in tqdm(detected_faces, desc="  Extraction")]
         
+        # Filter to identities with >= 3 samples (so we can use 2 for LDA, rest for query)
         identity_counts = defaultdict(int)
         for identity in detected_ids:
             identity_counts[identity] += 1
         
         valid_identities = {identity for identity, count in identity_counts.items() if count >= 3}
         
+        # Organize features by identity
         identity_features = defaultdict(list)
         for feat, identity, idx in zip(all_features, detected_ids, detected_indices):
             if identity in valid_identities:
                 identity_features[identity].append((feat, idx))
         
+        # Create splits: 1st=gallery, all except last=LDA training, last=query
         gallery_features, gallery_ids = [], []
         lda_features, lda_labels = [], []
         query_features, query_ids = [], []
         
         for identity, items in identity_features.items():
+            # 1st sample: gallery
             gallery_features.append(items[0][0])
             gallery_ids.append(identity)
+            # All samples except last: for LDA training (includes gallery)
             for feat, _ in items[:-1]:
                 lda_features.append(feat)
                 lda_labels.append(identity)
+            # Last sample only: query
             query_features.append(items[-1][0])
             query_ids.append(identity)
         
+        # Train PCA+LDA (Fisherfaces approach)
         print(f"  Training PCA+LDA ({len(valid_identities)} classes, {len(lda_features)} samples)...")
         lda = LDAProjection(n_components=None, pca_components=150)
         lda.fit(lda_features, lda_labels)
@@ -222,15 +252,18 @@ def experiment3_full_pipeline(dataset, exp1_results, results_dir='results'):
         
         print(f"  Gallery: {len(gallery_features)} images, Query: {len(query_features)} images")
         
+        # Apply LDA projection to both sets
         gallery_features = lda.transform(gallery_features)
         query_features = lda.transform(query_features)
         
+        # Evaluate
         evaluator = FaceRecognitionEvaluator(distance_metric='cosine')
         results = evaluator.evaluate(query_features, query_ids, gallery_features, gallery_ids, max_rank=20)
         
         all_results[name] = results
         print(f"  Rank-1: {results['rank1']:.2%}, Rank-5: {results['rank5']:.2%}")
     
+    # Save plot
     plot_cmc_curves(all_results, save_path=f'{results_dir}/exp3_cmc.png')
     
     return all_results
@@ -243,6 +276,7 @@ def generate_report(exp1, exp2, exp3, output_path='results/report.txt'):
         f.write("FACE RECOGNITION PIPELINE - RESULTS\n")
         f.write("="*70 + "\n\n")
         
+        # Experiment I
         f.write("EXPERIMENT I: FACE DETECTION\n")
         f.write("-"*70 + "\n")
         f.write(f"Best Parameters: Scale={exp1['params']['scale_factor']}, MinNeighbors={exp1['params']['min_neighbors']}\n")
@@ -250,6 +284,7 @@ def generate_report(exp1, exp2, exp3, output_path='results/report.txt'):
         f.write(f"Precision: {exp1['metrics']['precision']:.4f}\n")
         f.write(f"Recall: {exp1['metrics']['recall']:.4f}\n\n")
         
+        # Experiment II
         f.write("EXPERIMENT II: WHOLE IMAGES\n")
         f.write("-"*70 + "\n")
         f.write(f"{'Method':<15} {'Rank-1':<12} {'Rank-5':<12}\n")
@@ -257,6 +292,7 @@ def generate_report(exp1, exp2, exp3, output_path='results/report.txt'):
             f.write(f"{method:<15} {res['rank1']:>10.2%} {res['rank5']:>10.2%}\n")
         f.write("\n")
         
+        # Experiment III
         f.write("EXPERIMENT III: FULL PIPELINE\n")
         f.write("-"*70 + "\n")
         f.write(f"{'Method':<15} {'Rank-1':<12} {'Rank-5':<12}\n")
@@ -268,31 +304,37 @@ def generate_report(exp1, exp2, exp3, output_path='results/report.txt'):
 
 def main():
     """Run all experiments or test setup."""
+    # Check for test flag
     if len(sys.argv) > 1 and sys.argv[1] in ['--test', '-t', 'test']:
         success = test_setup()
         if success:
-            print("\nSetup verified! Run 'python run_experiments.py' to start.")
+            print("\n✅ Setup verified! Run 'python run_experiments.py' to start.")
         sys.exit(0 if success else 1)
     
     print("\n" + "#"*70)
     print("# FACE RECOGNITION PIPELINE")
     print("#"*70)
     
+    # Test setup first
     if not test_setup():
-        print("\nSetup test failed. Please fix the issues above.")
+        print("\n❌ Setup test failed. Please fix the issues above.")
         sys.exit(1)
     
+    # Setup
     results_dir = 'results'
     os.makedirs(results_dir, exist_ok=True)
     
     dataset = CelebAHQDataset('data/CelebA-HQ-small.csv', 'data/CelebA-HQ-small')
     
+    # Run experiments
     exp1 = experiment1_detection(dataset, results_dir)
     exp2 = experiment2_whole_images(dataset, results_dir)
     exp3 = experiment3_full_pipeline(dataset, exp1, results_dir)
     
+    # Generate report
     generate_report(exp1, exp2, exp3, f'{results_dir}/report.txt')
     
+    # Save results
     with open(f'{results_dir}/all_results.pkl', 'wb') as f:
         pickle.dump({'exp1': exp1, 'exp2': exp2, 'exp3': exp3}, f)
     
@@ -306,6 +348,7 @@ def main():
     print("  - report.txt")
     print("  - all_results.pkl")
     print("\nNext: Write your 2-page report using REPORT_GUIDE.md")
+
 
 if __name__ == '__main__':
     main()

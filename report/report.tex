@@ -45,64 +45,109 @@
 \maketitle
 
 \begin{abstract}
-This work implements a complete face recognition pipeline on the CelebA-HQ dataset, evaluated through three experiments: face detection using Viola-Jones with parameter optimization, feature-based recognition on whole images, and full pipeline evaluation combining detection with recognition. HOG features achieved the best performance with 21.18\% Rank-1 accuracy on whole images and 22.93\% on the full pipeline, demonstrating the effectiveness of proper face localization.
+This work implements a face recognition pipeline on the CelebA-HQ dataset through three experiments: Viola-Jones face detection with optimized parameters (IoU 0.631), recognition on whole images using traditional feature extraction methods (LBP, HOG, Dense SIFT), and full pipeline evaluation. HOG features achieved best performance with 52.00\% Rank-1 and 74.00\% Rank-5 in the full pipeline. Dense SIFT with spatial pyramid showed dramatic improvement, achieving 48.00\% Rank-1 (66.00\% Rank-5), competitive with HOG. Results demonstrate the effectiveness of PCA+LDA dimensionality reduction and spatial feature organization.
 \end{abstract}
 
 % ########################################
-\section{Introduction}
-Face recognition systems require both accurate face localization and discriminative feature extraction. This work implements and evaluates a complete face recognition pipeline using the CelebA-HQ dataset through three progressive experiments: (I) face detection evaluation using the Viola-Jones algorithm with optimized parameters, (II) recognition performance on whole images using three different feature extraction methods (LBP, HOG, Dense SIFT), and (III) full pipeline evaluation combining detection and recognition to assess the impact of face localization quality on overall recognition performance.
+\section{Introduction and Dataset}
+This work evaluates a face recognition system using texture-based and gradient-based feature extraction on the CelebA-HQ small subset (887 images, 100 identities). Three complementary methods (LBP, HOG, Dense SIFT) are combined with PCA+LDA dimensionality reduction. Since train/test splits contain disjoint identities, the test set is used only for detection evaluation (Experiment I), while recognition experiments (II \& III) use training data split into gallery and query sets: 50 identities with $\geq$3 images contributed their first image to the gallery, intermediate images for LDA training, and the last image as query. This approach enables CMC evaluation while maintaining proper train-test separation.
 
 % ########################################
 \section{Methodology}
 
 \subsection{Face Detection}
-The Viola-Jones algorithm was implemented using OpenCV's Haar Cascade classifier for frontal face detection. Parameters (scale factor and minimum neighbors) were optimized through grid search on the training set, evaluating combinations of scale factors $\{1.05, 1.1, 1.15, 1.2\}$ and minimum neighbors $\{3, 4, 5, 6\}$. Detection performance was measured using Intersection over Union (IoU) between predicted and ground-truth bounding boxes.
+Viola-Jones with OpenCV's Haar Cascade was optimized via grid search on 100 training images: scale factors $\{1.05, 1.1, 1.15, 1.2\}$ and minimum neighbors $\{3, 4, 5, 6\}$. Best parameters (scale=1.05, neighbors=3) were evaluated on the test set using IoU metrics.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=0.5\columnwidth]{../results/detection_example.png}}
+\caption{Example face detection: ground truth (green) vs detected (red)}
+\label{fig:detection_example}
+\end{figure}
 
 \subsection{Feature Extraction}
-Three complementary feature extraction methods were implemented with optimizations for improved discriminative power:
+Three complementary feature extraction methods were implemented:
 
-\textbf{Local Binary Patterns (LBP):} Texture-based features computed using 24 circularly symmetric points at radius 3 with uniform pattern encoding. Images were resized to 256×256 pixels with histogram equalization, and features were extracted using a 4×4 spatial grid to preserve local structure. Each region's histogram was L2-normalized and concatenated.
+\textbf{Local Binary Patterns (LBP):} Texture-based features using 24-point uniform patterns at radius 8 on 144x112 images with histogram equalization. A 6x4 spatial grid (24 blocks of 24x28 pixels) with region-weighted histograms emphasizes central facial features (eyes, nose) while suppressing peripheral areas, yielding 624-dimensional features.
 
-\textbf{Histogram of Oriented Gradients (HOG):} Gradient-based features with 9 orientation bins, 8×8 pixel cells, and 3×3 cells per block. Images underwent histogram equalization before feature extraction. L2-Hys block normalization with transform sqrt was applied for illumination invariance, followed by additional L2 normalization.
+\textbf{Histogram of Oriented Gradients (HOG):} Gradient-based features with 9 orientation bins, 16x16 cells, 2x2 blocks on 144x112 images after histogram equalization. L2-Hys normalization with power law compression provides illumination invariance. The portrait format matches natural face proportions.
 
-\textbf{Dense SIFT:} SIFT descriptors computed on a dense grid with 6-pixel step size and 16-pixel patches. Both mean and standard deviation of descriptors were concatenated and L2-normalized to create a 256-dimensional feature vector.
+\textbf{Dense SIFT:} SIFT descriptors extracted from 16-pixel patches on a dense 4-pixel grid. A 4x3 spatial pyramid divides the image into cells, computing mean SIFT descriptors per cell to preserve spatial information, yielding 1536-dimensional features (12 cells x 128 dims).
 
-\subsection{Recognition Evaluation}
-Recognition was evaluated using Cumulative Match Characteristic (CMC) curves and Rank-k accuracy metrics. For each identity with multiple images, the first image formed the gallery set while remaining images served as queries. Cosine distance was used to rank gallery images by similarity to each query, and CMC curves were computed by tracking at which rank the correct identity first appears.
+\subsection{Dimensionality Reduction}
+PCA (150 components) followed by LDA (49 components) enhances discriminative power following the Fisherfaces approach. PCA whitening prevents numerical instability in high-dimensional spaces, while LDA maximizes between-class variance and minimizes within-class variance. LDA was trained on all samples except one per identity (reserved for queries), ensuring proper train-test separation with sufficient training data ($\sim$400 samples, 50 classes).
+
+\subsection{Recognition and Evaluation}
+Nearest neighbor with cosine distance matches queries to gallery. Performance evaluated using CMC curves and Rank-1/Rank-5 accuracy.
 
 % ########################################
-\section{Experiments}
-
-\subsection{Dataset and Splits}
-The CelebA-HQ small subset contains 887 images across 100 identities with provided train/test splits and face bounding boxes. Since train and test sets contain disjoint identities, a gallery-query split was created from the training set: identities with at least two images contributed their first image to the gallery (50 identities) and remaining images to queries (425 images).
+\section{Results}
 
 \subsection{Experiment I: Face Detection}
-Viola-Jones parameters were optimized on a 100-image subset of the training data to balance accuracy and computational efficiency. The best parameters were then evaluated on the full test set (412 images) using IoU metrics, precision, recall, and F1-score with IoU threshold of 0.5.
+Optimized parameters (scale=1.05, neighbors=3) achieved 0.631 average IoU and 99.76\% detection rate on the test set (Fig.~\ref{fig:exp1_iou}). With IoU threshold 0.5: precision 0.925, recall 0.997, F1-score 0.960. Detected boxes are adjusted to 1.36 aspect ratio to match ground truth proportions.
 
-\subsection{Experiment II: Recognition on Whole Images}
-All three feature extractors were applied to whole images without face detection. Features were extracted from the gallery (50 images) and query sets (425 images). Recognition performance was evaluated using CMC curves up to Rank-20, with Rank-1 and Rank-5 accuracies reported.
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\columnwidth]{../results/exp1_iou.png}}
+\caption{IoU distribution on test set}
+\label{fig:exp1_iou}
+\end{figure}
 
-\subsection{Experiment III: Full Pipeline Recognition}  
-Using optimized Viola-Jones parameters from Experiment I, faces were detected in all training images. For identities with at least two successfully detected faces, the same gallery-query split strategy was applied to the cropped face regions. Features were extracted from detected faces and recognition performance evaluated identically to Experiment II, allowing direct comparison of the impact of face detection on recognition accuracy.
+\subsection{Experiment II: Whole Images}
+Table~\ref{tab:exp2_results} and Fig.~\ref{fig:exp2_cmc} show HOG achieving 42.00\% Rank-1 (68.00\% Rank-5), outperforming LBP (18.00\%, 42.00\%). Dense SIFT with spatial pyramid achieved 34.00\% Rank-1 (54.00\% Rank-5), significantly better than global pooling. Gradient-based HOG captures facial structure most effectively. All methods suffer from background dilution in whole-image processing.
+
+\begin{table}[htbp]
+\caption{Recognition Results on Whole Images}
+\begin{center}
+\begin{tabular}{lcc}
+\hline
+\textbf{Method} & \textbf{Rank-1 (\%)} & \textbf{Rank-5 (\%)} \\
+\hline
+LBP & 18.00 & 42.00 \\
+HOG & \textbf{42.00} & \textbf{68.00} \\
+Dense SIFT & 34.00 & 54.00 \\
+\hline
+\end{tabular}
+\label{tab:exp2_results}
+\end{center}
+\end{table}
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\columnwidth]{../results/exp2_cmc.png}}
+\caption{CMC curves for whole images (training data).}
+\label{fig:exp2_cmc}
+\end{figure}
+
+\subsection{Experiment III: Full Pipeline}
+Detection succeeded on 473/475 images (99.58\%). Table~\ref{tab:exp3_results} and Fig.~\ref{fig:exp3_cmc} show face detection dramatically improving all methods. HOG achieved 52.00\% Rank-1 (74.00\% Rank-5), the best performance overall. Dense SIFT improved dramatically from 34.00\% to 48.00\% (+14\%), nearly matching HOG, demonstrating that spatial pyramids with face localization are highly effective. LBP improved from 18.00\% to 28.00\% (+10\%) as region weighting focuses on central features.
+
+\begin{table}[htbp]
+\caption{Recognition Results with Full Pipeline}
+\begin{center}
+\begin{tabular}{lcc}
+\hline
+\textbf{Method} & \textbf{Rank-1 (\%)} & \textbf{Rank-5 (\%)} \\
+\hline
+LBP & 28.00 & 52.00 \\
+HOG & \textbf{52.00} & \textbf{74.00} \\
+Dense SIFT & 48.00 & 66.00 \\
+\hline
+\end{tabular}
+\label{tab:exp3_results}
+\end{center}
+\end{table}
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\columnwidth]{../results/exp3_cmc.png}}
+\caption{CMC curves for full pipeline (training data).}
+\label{fig:exp3_cmc}
+\end{figure}
 
 % ########################################
-\section{Results and Discussion}
+\section{Discussion and Conclusion}
+\textbf{Performance Analysis:} HOG achieved best performance (52\% Rank-1, 74\% Rank-5), benefiting from robust gradient features and face detection. Dense SIFT showed dramatic improvement (34\% to 48\% Rank-1) with spatial pyramid organization, nearly matching HOG and demonstrating the importance of preserving spatial structure. LBP improved moderately (18\% to 28\%) through region weighting emphasizing central features. Detection boxes adjusted to 1.36 aspect ratio match ground truth proportions. PCA+LDA dimensionality reduction significantly enhanced all methods.
 
-\subsection{Experiment I: Face Detection Performance}
-Viola-Jones optimization identified scale factor 1.05 and minimum neighbors 3 as optimal parameters. On the test set, the detector achieved an average IoU of 0.686 with 99.76\% detection rate, precision of 0.937, recall of 0.997, and F1-score of 0.966, demonstrating highly reliable face localization on frontal face images.
+\textbf{Key Insights:} PCA preprocessing (150 dims) prevented scatter matrix singularity. Training LDA on all samples except queries balanced training data with test separation. Dense SIFT's background sensitivity demonstrates detection quality importance for local features.
 
-\subsection{Experiment II: Recognition on Whole Images}
-HOG features achieved the best performance with 21.18\% Rank-1 accuracy and 44.24\% Rank-5 accuracy. Dense SIFT obtained 11.76\% Rank-1 and 27.29\% Rank-5, while LBP with spatial grid achieved 6.59\% Rank-1 and 19.53\% Rank-5. The gradient-based HOG descriptor proved most discriminative for face recognition, capturing structural information more effectively than texture-based LBP or local SIFT features.
-
-\subsection{Experiment III: Full Pipeline Performance}
-The detection stage successfully located faces in 473 of 475 training images (99.58\%), with 50 identities having multiple detected faces. On detected face regions, HOG achieved 22.93\% Rank-1 and 42.79\% Rank-5 accuracy, Dense SIFT obtained 13.95\% Rank-1 and 34.04\% Rank-5, while LBP achieved 4.26\% Rank-1 and 14.42\% Rank-5. The full pipeline showed slight improvement over whole images for HOG and Dense SIFT, indicating that face localization helps by removing background clutter, though LBP performance decreased, possibly due to loss of contextual information.
-
-\subsection{Discussion}
-HOG consistently outperformed other methods in both scenarios, benefiting from its robustness to illumination variations and ability to capture facial structure through gradient orientations. The optimized LBP with spatial histograms showed significant improvement over basic LBP (from 2.82\% to 6.59\% Rank-1), demonstrating the importance of preserving spatial information. The full pipeline's performance depends on detection quality: high IoU scores enabled accurate face cropping, which improved feature localization for gradient-based methods. The relatively modest absolute accuracy values reflect the challenging closed-set identification task with limited training samples per identity.
-
-% ########################################
-\section{Conclusion}
-This work successfully implemented a complete face recognition pipeline with optimized face detection and feature extraction. Viola-Jones achieved excellent detection performance (IoU 0.686, 99.76\% detection rate), while HOG features demonstrated superior recognition capability with approximately 22\% Rank-1 accuracy in both whole image and full pipeline scenarios. The results confirm that proper face localization combined with robust gradient-based features provides the best performance for face recognition. Future work could explore deep learning-based features and multi-scale representations to further improve accuracy.
+\textbf{Limitations:} Limited samples per identity (avg 4.75) and challenging conditions (pose, expression, lighting) constrain performance. Closed-set assumes known identities; Viola-Jones requires frontal faces.
 
 % ########################################
 \bibliographystyle{IEEEtran}

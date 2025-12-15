@@ -71,6 +71,7 @@ class FaceRecognitionEvaluator:
         """
         distances = self.compute_distances(query_feature, gallery_features)
         
+        # Sort by distance (ascending)
         sorted_indices = np.argsort(distances)
         ranked_identities = [gallery_identities[i] for i in sorted_indices]
         
@@ -97,16 +98,22 @@ class FaceRecognitionEvaluator:
         cmc = np.zeros(max_rank)
         
         for query_feat, query_id in zip(query_features, query_identities):
+            # Rank gallery by similarity
             ranked_ids = self.rank_gallery(query_feat, gallery_features, gallery_identities)
             
+            # Find the rank of the correct identity
             try:
+                # Find first occurrence of correct identity
                 correct_rank = ranked_ids.index(query_id)
                 
+                # Update CMC (all ranks >= correct_rank get a match)
                 if correct_rank < max_rank:
                     cmc[correct_rank:] += 1
             except ValueError:
+                # Identity not found in gallery (shouldn't happen in closed-set)
                 pass
         
+        # Normalize by number of queries
         cmc = cmc / len(query_features)
         
         return cmc
@@ -125,7 +132,7 @@ class FaceRecognitionEvaluator:
         if k <= 0 or k > len(cmc):
             raise ValueError(f"Invalid rank k={k}, must be in [1, {len(cmc)}]")
         
-        return cmc[k - 1]
+        return cmc[k - 1]  # Convert to 0-indexed
     
     def evaluate(self, query_features: List[np.ndarray],
                 query_identities: List[int],
@@ -160,14 +167,13 @@ class FaceRecognitionEvaluator:
         }
 
 
-def plot_cmc_curves(results: Dict[str, Dict], save_path: str = None, legend_loc: str = 'best'):
+def plot_cmc_curves(results: Dict[str, Dict], save_path: str = None):
     """
     Plot CMC curves for multiple methods.
     
     Args:
         results: Dictionary mapping method names to evaluation results
         save_path: Path to save the plot (optional)
-        legend_loc: Legend location (default: 'best')
     """
     plt.figure(figsize=(10, 6))
     
@@ -178,7 +184,7 @@ def plot_cmc_curves(results: Dict[str, Dict], save_path: str = None, legend_loc:
     
     plt.xlabel('Rank', fontsize=12)
     plt.ylabel('Recognition Rate (%)', fontsize=12)
-    plt.legend(fontsize=10, loc=legend_loc)
+    plt.legend(fontsize=10)
     plt.grid(True, alpha=0.3)
     plt.xlim(1, len(list(results.values())[0]['cmc']))
     plt.ylim(0, 105)

@@ -42,6 +42,7 @@ def evaluate_detection(predicted_boxes: List[Tuple[int, int, int, int]],
         elif pred_box is not None and gt_box is None:
             false_positives += 1
     
+    # Calculate metrics
     precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0.0
     recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0.0
     f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
